@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Digital Coupon - {{ event_name }}</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        .content {
+            padding: 40px 30px;
+            text-align: center;
+        }
+        .greeting {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .coupon-section {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            border-radius: 15px;
+            padding: 30px;
+            margin: 30px 0;
+            color: white;
+        }
+        .coupon-title {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        .qr-code {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            display: inline-block;
+            margin: 20px 0;
+        }
+        .qr-code img {
+            max-width: 200px;
+            height: auto;
+        }
+        .coupon-id {
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            background: rgba(255,255,255,0.2);
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 15px;
+            word-break: break-all;
+        }
+        .instructions {
+            background-color: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 30px 0;
+            text-align: left;
+        }
+        .instructions h3 {
+            color: #667eea;
+            margin-top: 0;
+        }
+        .instructions ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .instructions li {
+            margin: 8px 0;
+            color: #555;
+        }
+        .footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }
+        .footer p {
+            margin: 5px 0;
+        }
+        @media only screen and (max-width: 600px) {
+            .container {
+                margin: 0;
+                border-radius: 0;
+            }
+            .header, .content {
+                padding: 20px;
+            }
+            .coupon-section {
+                padding: 20px;
+                margin: 20px 0;
+            }
+            .qr-code img {
+                max-width: 150px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎉 {{ event_name }}</h1>
+            <p>Your Digital Coupon is Ready!</p>
+        </div>
+        
+        <div class="content">
+            <div class="greeting">
+                Hello <strong>{{ email }}</strong>!
+            </div>
+            
+            <p>We're excited to share your exclusive digital coupon for <strong>{{ event_name }}</strong>. Simply show this QR code at the event to redeem your coupon.</p>
+            
+            <div class="coupon-section">
+                <div class="coupon-title">Your Digital Coupon</div>
+                
+                <div class="qr-code">
+                    <img src="data:image/png;base64,{{ qr_code_base64 }}" alt="QR Code for {{ coupon_id }}" />
+                </div>
+                
+                <div class="coupon-id">
+                    Coupon ID: {{ coupon_id }}
+                </div>
+            </div>
+            
+            <div class="instructions">
+                <h3>📱 How to Use Your Coupon</h3>
+                <ul>
+                    <li>Save this email or take a screenshot of the QR code</li>
+                    <li>Show the QR code to event staff when you arrive</li>
+                    <li>Staff will scan the code to verify and redeem your coupon</li>
+                    <li>Each coupon can only be used once</li>
+                </ul>
+            </div>
+            
+            <p style="color: #666; font-size: 14px; margin-top: 30px;">
+                This coupon is valid for 24 hours from the time it was generated. 
+                Please ensure you use it within this timeframe.
+            </p>
+        </div>
+        
+        <div class="footer">
+            <p><strong>{{ event_name }}</strong></p>
+            <p>Thank you for participating in our event!</p>
+            <p style="font-size: 12px; color: #999;">
+                This is an automated email. Please do not reply to this message.
+            </p>
+        </div>
+    </div>
+</body>
+</html>
