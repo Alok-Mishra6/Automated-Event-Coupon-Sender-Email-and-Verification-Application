@@ -41,3 +41,6 @@ sample_attendees.csv
 ngrok
 ngrok.exe
 .ngrok2/
+
+# Kiro
+.kiro/
