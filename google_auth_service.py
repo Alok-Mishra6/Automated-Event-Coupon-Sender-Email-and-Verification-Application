@@ -43,10 +43,13 @@ class GoogleAuthService:
         """Check if Google OAuth is properly configured"""
         return bool(self.client_id and self.client_secret)
     
-    def get_authorization_url(self) -> str:
+    def get_authorization_url(self, redirect_uri: Optional[str] = None) -> str:
         """Generate Google OAuth authorization URL"""
         if not self.is_configured():
             raise ValueError("Google OAuth not configured")
+        
+        # Use provided redirect_uri or fall back to default
+        current_redirect_uri = redirect_uri or self.redirect_uri
         
         flow = Flow.from_client_config(
             {
@@ -55,22 +58,22 @@ class GoogleAuthService:
                     "client_secret": self.client_secret,
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": [self.redirect_uri]
+                    "redirect_uris": [current_redirect_uri]
                 }
             },
             scopes=self.scopes
         )
-        flow.redirect_uri = self.redirect_uri
+        flow.redirect_uri = current_redirect_uri
         
         authorization_url, state = flow.authorization_url(
             access_type='offline',
             include_granted_scopes='true',
-            prompt='consent'
+            prompt='select_account consent'
         )
         
         return authorization_url, state
     
-    def exchange_code_for_tokens(self, authorization_code: str, state: str) -> Dict[str, Any]:
+    def exchange_code_for_tokens(self, authorization_code: str, state: str, redirect_uri: Optional[str] = None) -> Dict[str, Any]:
         """Exchange authorization code for access tokens"""
         if not self.is_configured():
             raise ValueError("Google OAuth not configured")
@@ -79,11 +82,14 @@ class GoogleAuthService:
             # Manual token exchange to avoid scope validation issues
             import requests
             
+            # Use provided redirect_uri or fall back to default
+            current_redirect_uri = redirect_uri or self.redirect_uri
+            
             token_data = {
                 'code': authorization_code,
                 'client_id': self.client_id,
                 'client_secret': self.client_secret,
-                'redirect_uri': self.redirect_uri,
+                'redirect_uri': current_redirect_uri,
                 'grant_type': 'authorization_code'
             }
             

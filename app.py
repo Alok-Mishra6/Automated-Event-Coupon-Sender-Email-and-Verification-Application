@@ -79,8 +79,18 @@ def login():
                                  error="Google OAuth is not configured. Please check your environment variables.")
         
         try:
-            authorization_url, state = google_auth_service.get_authorization_url()
+            # Use configured redirect URI from .env, fallback to dynamic detection
+            configured_redirect_uri = os.getenv('GOOGLE_REDIRECT_URI')
+            if configured_redirect_uri:
+                redirect_uri = configured_redirect_uri
+            else:
+                # Fallback to dynamic detection
+                current_host = request.host
+                redirect_uri = f"http://{current_host}/auth/callback"
+            
+            authorization_url, state = google_auth_service.get_authorization_url(redirect_uri)
             session['oauth_state'] = state
+            session['oauth_redirect_uri'] = redirect_uri  # Store for callback
             return redirect(authorization_url)
         except Exception as e:
             logger.error(f"Error initiating OAuth: {e}")
@@ -107,8 +117,11 @@ def auth_callback():
         if state != session.get('oauth_state'):
             return render_template('login_error.html', error="Invalid state parameter")
         
+        # Get the redirect URI used for this OAuth flow
+        redirect_uri = session.get('oauth_redirect_uri')
+        
         # Exchange code for tokens
-        token_data = google_auth_service.exchange_code_for_tokens(authorization_code, state)
+        token_data = google_auth_service.exchange_code_for_tokens(authorization_code, state, redirect_uri)
         
         # Store user data in session
         session['user'] = token_data['user_info']
@@ -121,8 +134,9 @@ def auth_callback():
             'scopes': token_data['scopes']
         }
         
-        # Clear state
+        # Clear state and redirect URI
         session.pop('oauth_state', None)
+        session.pop('oauth_redirect_uri', None)
         
         logger.info(f"User {token_data['user_info']['email']} logged in successfully")
         return redirect(url_for('dashboard'))
