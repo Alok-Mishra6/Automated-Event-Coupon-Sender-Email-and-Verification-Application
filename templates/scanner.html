@@ -433,6 +433,36 @@
             100% { opacity: 1; }
         }
         
+        @keyframes bounce {
+            0%, 20%, 53%, 80%, 100% {
+                animation-timing-function: cubic-bezier(0.215, 0.610, 0.355, 1.000);
+                transform: translate3d(0,0,0);
+            }
+            40%, 43% {
+                animation-timing-function: cubic-bezier(0.755, 0.050, 0.855, 0.060);
+                transform: translate3d(0, -30px, 0);
+            }
+            70% {
+                animation-timing-function: cubic-bezier(0.755, 0.050, 0.855, 0.060);
+                transform: translate3d(0, -15px, 0);
+            }
+            90% {
+                transform: translate3d(0,-4px,0);
+            }
+        }
+        
+        @keyframes shake {
+            0%, 100% {
+                transform: translate3d(0, 0, 0);
+            }
+            10%, 30%, 50%, 70%, 90% {
+                transform: translate3d(-10px, 0, 0);
+            }
+            20%, 40%, 60%, 80% {
+                transform: translate3d(10px, 0, 0);
+            }
+        }
+        
         .hidden {
             display: none !important;
         }
@@ -509,6 +539,20 @@
                         <p style="color: var(--text-secondary); font-size: 14px; margin: 0;">
                             <strong>Note:</strong> Registration enables real-time synchronization with other staff devices. You can still scan tickets without registration, but won't see live updates from other scanners.
                         </p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Verification Result Modal -->
+            <div id="verificationModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 2000; backdrop-filter: blur(15px);">
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--bg-secondary); padding: 40px; border-radius: 20px; border: 2px solid var(--border); max-width: 600px; width: 90%; box-shadow: var(--shadow);">
+                    <div id="verificationContent">
+                        <!-- Content will be populated by JavaScript -->
+                    </div>
+                    
+                    <div style="display: flex; gap: 15px; justify-content: center; margin-top: 30px;">
+                        <button onclick="closeVerificationModal()" class="btn btn-primary" style="min-width: 120px;">✅ Continue</button>
+                        <button onclick="closeVerificationModal(); resumeScanning();" class="btn btn-secondary" style="min-width: 120px;">🔄 Scan Next</button>
                     </div>
                 </div>
             </div>
@@ -1695,28 +1739,98 @@
             requestAnimationFrame(scanQRCode);
         }
         
-        // Enhanced main scanner function with mobile detection
+        // Enhanced main scanner function with reliable camera initialization
         async function startScanner() {
             const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
             
             if (isMobile) {
                 updateStatus('📱 Initializing mobile camera...', 'info');
-                showResult(`
-                    <div style="background: rgba(99, 102, 241, 0.1); padding: 20px; border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.3);">
-                        <h3 style="color: var(--accent-primary); margin-bottom: 15px;">📱 Mobile Camera Setup</h3>
-                        <p>Preparing camera for mobile device...</p>
-                        <p style="margin-top: 10px;"><strong>Tips for best results:</strong></p>
-                        <ul style="text-align: left; margin: 10px 0; padding-left: 20px;">
-                            <li>Hold device steady</li>
-                            <li>Ensure good lighting</li>
-                            <li>Position QR code clearly in frame</li>
-                            <li>Allow camera permissions when prompted</li>
-                        </ul>
-                    </div>
-                `, 'info');
+            } else {
+                updateStatus('🖥️ Initializing desktop camera...', 'info');
             }
             
-            await debugCameraDevices();
+            try {
+                // Initialize camera and start scanning immediately
+                await initializeCamera();
+                
+            } catch (error) {
+                console.error('Camera initialization failed:', error);
+                updateStatus('❌ Camera initialization failed', 'error');
+                showResult('❌ Failed to access camera. Please check permissions and try again.', 'error');
+            }
+        }
+        
+        // Initialize camera with proper constraints for reliable operation
+        async function initializeCamera() {
+            try {
+                updateStatus('🔍 Accessing camera...', 'info');
+                
+                // Set the video element from the DOM
+                if (!video) {
+                    video = document.getElementById('video');
+                    if (!video) {
+                        throw new Error('Video element not found in DOM');
+                    }
+                }
+                
+                // Use constraints that work well across devices
+                const constraints = {
+                    video: {
+                        facingMode: 'environment', // Use back camera on mobile
+                        width: { ideal: 1280, max: 1920 },
+                        height: { ideal: 720, max: 1080 },
+                        frameRate: { ideal: 30, max: 60 }
+                    }
+                };
+                
+                // Get media stream
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+                
+                // Wait for video to be ready and start scanning immediately
+                return new Promise((resolve, reject) => {
+                    video.onloadedmetadata = () => {
+                        video.play().then(() => {
+                            console.log('✅ Camera initialized and playing');
+                            console.log('Video dimensions:', video.videoWidth, 'x', video.videoHeight);
+                            
+                            // Enable UI controls
+                            document.getElementById('startBtn').disabled = true;
+                            document.getElementById('stopBtn').disabled = false;
+                            document.getElementById('captureBtn').disabled = false;
+                            
+                            // Reset detection state
+                            resetDetectionState();
+                            
+                            // Start scanning immediately
+                            scanning = true;
+                            updateStatus('📱 Camera ready - scanning for QR codes...', 'scanning');
+                            
+                            // Start the scanning loop
+                            requestAnimationFrame(scanQRCode);
+                            
+                            resolve();
+                        }).catch(reject);
+                    };
+                    
+                    video.onerror = reject;
+                    
+                    // Timeout after 10 seconds
+                    setTimeout(() => reject(new Error('Camera initialization timeout')), 10000);
+                });
+                
+            } catch (error) {
+                console.error('Camera access failed:', error);
+                throw error;
+            }
+        }
+        
+        // Reset detection state for fresh scanning
+        function resetDetectionState() {
+            detectionState.processingQR = false;
+            detectionState.lastDetected = null;
+            detectionState.consecutiveDetections = 0;
+            detectionState.lastProcessTime = 0;
         }
         
         // Debug camera status for troubleshooting
@@ -1744,7 +1858,7 @@
             return video.readyState >= video.HAVE_CURRENT_DATA && video.videoWidth > 0;
         }
         
-        // Enhanced capture function with better error handling
+        // Enhanced capture function that works reliably and resumes scanning
         function captureAndScan() {
             // Debug camera status first
             const cameraReady = debugCameraStatus();
@@ -1783,63 +1897,78 @@
                 // Draw current video frame
                 captureContext.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
                 
-                // Show capture preview
-                showCapturePreview(captureCanvas);
-                
-                // Process the captured image for QR codes
+                // Process the captured image for QR codes immediately
                 updateStatus('🔍 Analyzing captured image...', 'info');
                 
-                // Temporarily switch to capture canvas for QR detection
-                const originalCanvas = canvas;
-                const originalContext = context;
+                // Get image data and try QR detection
+                const imageData = captureContext.getImageData(0, 0, captureCanvas.width, captureCanvas.height);
                 
-                canvas = captureCanvas;
-                context = captureContext;
-                
-                const qrResult = tryQRDetection();
-                
-                // Restore original canvas
-                canvas = originalCanvas;
-                context = originalContext;
-                
-                if (qrResult && qrResult.data && qrResult.data.length > 20) {
-                    console.log('QR found in captured image:', qrResult.data.substring(0, 50) + '...');
-                    updateStatus('✅ QR code found in capture!', 'success');
+                try {
+                    const qrResult = jsQR(imageData.data, imageData.width, imageData.height, {
+                        inversionAttempts: "dontInvert",
+                    });
                     
-                    // Process immediately without confirmation since it's manual
-                    processConfirmedQR(qrResult.data);
-                } else {
-                    updateStatus('❌ No QR code found in capture', 'error');
-                    showResult(`
-                        <div style="background: rgba(239, 68, 68, 0.1); padding: 20px; border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">
-                            <h3 style="color: #ef4444; margin-bottom: 15px;">📸 No QR Code Found</h3>
-                            <p>The captured image doesn't contain a readable QR code.</p>
-                            
-                            <div style="text-align: left; margin: 15px 0;">
-                                <strong>Tips for better capture:</strong><br>
-                                • Ensure QR code is clearly visible and well-lit<br>
-                                • Hold device steady<br>
-                                • Make sure QR code fills a good portion of the frame<br>
-                                • Try different angles or distances<br>
-                                • Check if QR code is damaged or blurry<br>
+                    if (qrResult && qrResult.data && qrResult.data.length > 20) {
+                        console.log('QR found in captured image:', qrResult.data.substring(0, 50) + '...');
+                        updateStatus('✅ QR code found in capture!', 'success');
+                        
+                        // Process the QR immediately
+                        processConfirmedQR(qrResult.data);
+                        
+                    } else {
+                        updateStatus('❌ No QR code found in capture', 'error');
+                        showResult(`
+                            <div style="background: rgba(239, 68, 68, 0.1); padding: 20px; border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">
+                                <h3 style="color: #ef4444; margin-bottom: 15px;">📸 No QR Code Found</h3>
+                                <p>The captured image doesn't contain a readable QR code.</p>
+                                
+                                <div style="text-align: left; margin: 15px 0;">
+                                    <strong>Tips for better capture:</strong><br>
+                                    • Ensure QR code is clearly visible and well-lit<br>
+                                    • Hold device steady<br>
+                                    • Make sure QR code fills a good portion of the frame<br>
+                                    • Try different angles or distances<br>
+                                    • Check if QR code is damaged or blurry<br>
+                                </div>
+                                
+                                <div style="text-align: center; margin-top: 20px;">
+                                    <button onclick="captureAndScan()" class="btn btn-primary" style="margin-right: 10px;">
+                                        📸 Try Capture Again
+                                    </button>
+                                    <button onclick="resumeScanning()" class="btn btn-secondary">
+                                        � Resume Auto Scan
+                                    </button>
+                                </div>
                             </div>
-                            
-                            <div style="text-align: center; margin-top: 20px;">
-                                <button onclick="captureAndScan()" class="btn btn-primary" style="margin-right: 10px;">
-                                    📸 Try Capture Again
-                                </button>
-                                <button onclick="document.querySelector('.manual-entry').scrollIntoView({behavior: 'smooth'})" class="btn btn-secondary">
-                                    📝 Manual Entry
-                                </button>
-                            </div>
-                        </div>
-                    `, 'error');
+                        `, 'error');
+                        
+                        // Auto-resume scanning after 3 seconds if no action taken
+                        setTimeout(() => {
+                            if (!detectionState.processingQR) {
+                                resumeScanning();
+                            }
+                        }, 3000);
+                    }
+                } catch (jsQRError) {
+                    console.error('jsQR detection failed:', jsQRError);
+                    updateStatus('❌ QR detection failed', 'error');
+                    showResult('❌ Failed to analyze captured image. Try again or resume auto scanning.', 'error');
+                    
+                    // Resume scanning after error
+                    setTimeout(() => {
+                        resumeScanning();
+                    }, 2000);
                 }
                 
             } catch (error) {
                 console.error('Error during capture and scan:', error);
                 updateStatus('❌ Capture failed', 'error');
                 showResult('❌ Failed to capture image. Please try again.', 'error');
+                
+                // Resume scanning after error
+                setTimeout(() => {
+                    resumeScanning();
+                }, 2000);
             }
         }
         
@@ -1950,37 +2079,55 @@
             document.getElementById('resultSection').style.display = 'none';
         }
         
-        // Simplified and more reliable QR code scanning
+        // Enhanced and more reliable QR code scanning  
         let detectionState = {
             lastDetected: null,
             consecutiveDetections: 0,
             processingQR: false,
-            requiredDetections: 3
+            requiredDetections: 2, // Reduced for faster detection
+            lastScanTime: 0
         };
         
         function scanQRCode() {
             if (!scanning || !video || detectionState.processingQR) return;
             
             try {
-                if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                    // Create canvas with video dimensions
+                // Check multiple video ready states for broader compatibility
+                const isVideoReady = video.readyState >= video.HAVE_CURRENT_DATA && 
+                                   video.videoWidth > 0 && video.videoHeight > 0;
+                
+                if (isVideoReady) {
+                    // Throttle scanning to 10fps for better performance
+                    const now = Date.now();
+                    if (now - detectionState.lastScanTime < 100) {
+                        requestAnimationFrame(scanQRCode);
+                        return;
+                    }
+                    detectionState.lastScanTime = now;
+                    
+                    // Create canvas if needed
+                    if (!canvas) {
+                        canvas = document.createElement('canvas');
+                        context = canvas.getContext('2d');
+                    }
+                    
+                    // Set canvas dimensions to match video
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
                     
                     // Draw current video frame
                     context.drawImage(video, 0, 0, canvas.width, canvas.height);
                     
-                    // Try different detection approaches in order of reliability
+                    // Try QR detection
                     const qrResult = tryQRDetection();
                     
                     if (qrResult && qrResult.data && qrResult.data.length > 20) {
                         handleQRDetection(qrResult.data);
                     } else {
-                        // No QR detected, reset detection state
+                        // Reset detection state if no QR found
                         if (detectionState.consecutiveDetections > 0) {
                             detectionState.lastDetected = null;
                             detectionState.consecutiveDetections = 0;
-                            updateStatus('📱 Scanning for QR codes...', 'scanning');
                         }
                     }
                 }
@@ -1988,8 +2135,34 @@
                 console.error('Error during QR scanning:', error);
             }
             
+            // Continue scanning if still active and not processing
             if (scanning && !detectionState.processingQR) {
                 requestAnimationFrame(scanQRCode);
+            }
+        }
+        
+        // Handle QR detection with improved reliability
+        function handleQRDetection(qrData) {
+            // Check if this is the same QR as last detected
+            if (detectionState.lastDetected === qrData) {
+                detectionState.consecutiveDetections++;
+            } else {
+                detectionState.lastDetected = qrData;
+                detectionState.consecutiveDetections = 1;
+            }
+            
+            // Process QR if we have enough consecutive detections
+            if (detectionState.consecutiveDetections >= detectionState.requiredDetections) {
+                console.log('✅ QR code confirmed after', detectionState.consecutiveDetections, 'detections');
+                updateStatus('✅ QR Code detected - Processing...', 'success');
+                
+                // Stop further detection during processing
+                detectionState.processingQR = true;
+                
+                // Process the QR code
+                processConfirmedQR(qrData);
+            } else {
+                updateStatus(`🔍 QR detected (${detectionState.consecutiveDetections}/${detectionState.requiredDetections})...`, 'scanning');
             }
         }
         
@@ -2130,22 +2303,39 @@
             }
         }
         
-        // Resume scanning after processing
+        // Resume scanning after processing - fixed to work reliably
         function resumeScanning() {
-            detectionState.processingQR = false;
-            detectionState.lastDetected = null;
-            detectionState.consecutiveDetections = 0;
+            console.log('🔄 Resuming scanning...');
             
-            if (scanning) {
+            // Reset all detection state
+            resetDetectionState();
+            
+            // Ensure video is still available and playing
+            if (video && video.srcObject && !video.paused) {
+                scanning = true;
                 updateStatus('📱 Scanning for QR codes...', 'scanning');
+                
+                // Clear any existing result
+                document.getElementById('resultSection').style.display = 'none';
+                
+                // Restart the scanning loop
                 requestAnimationFrame(scanQRCode);
+                
+                console.log('✅ Scanning resumed successfully');
+            } else {
+                console.log('⚠️ Video not available, restarting scanner...');
+                // If video is not available, restart the entire scanner
+                stopScanner();
+                setTimeout(() => {
+                    document.getElementById('startBtn').click();
+                }, 500);
             }
         }
         
-        // Coupon verification
+        // Coupon verification with immediate scanning resume
         async function verifyCoupon(encryptedData, email = null) {
             try {
-                updateStatus('Verifying coupon...', 'info');
+                updateStatus('🔍 Verifying coupon...', 'info');
                 
                 const response = await fetch('/verify-coupon', {
                     method: 'POST',
@@ -2163,59 +2353,163 @@
                 if (result.success) {
                     updateStatus('✅ Coupon verified successfully!', 'success');
                     
+                    // Show success popup briefly
+                    showVerificationModal({
+                        success: true,
+                        title: '🎉 Verification Successful!',
+                        message: 'Attendee admitted to event',
+                        details: {
+                            'Coupon ID': result.coupon_id,
+                            'Email': result.email,
+                            'Event': result.event_name,
+                            'Verified': new Date().toLocaleString()
+                        },
+                        autoClose: true
+                    });
+                    
+                    // Show brief success message in scanner area
                     showResult(`
-                        ✅ <strong>Coupon Verified Successfully!</strong><br><br>
-                        <div class="coupon-details">
-                            <div class="detail-item"><strong>Coupon ID:</strong> ${result.coupon_id}</div>
-                            <div class="detail-item"><strong>Email:</strong> ${result.email}</div>
-                            <div class="detail-item"><strong>Event:</strong> ${result.event_name}</div>
-                            <div class="detail-item"><strong>Created:</strong> ${new Date(result.created_at).toLocaleString()}</div>
+                        <div style="background: rgba(16, 185, 129, 0.1); padding: 20px; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.3); text-align: center;">
+                            <h3 style="color: var(--success); margin-bottom: 10px;">✅ VERIFIED</h3>
+                            <p style="margin: 5px 0;"><strong>${result.email}</strong></p>
+                            <p style="margin: 5px 0; font-size: 14px; color: var(--text-secondary);">${result.event_name}</p>
+                            <p style="margin: 10px 0; font-size: 12px; color: var(--text-muted);">
+                                Thank you email: ${result.thank_you_email === 'sent' ? '✅ Sent' : '⚠️ Pending'}
+                            </p>
                         </div>
-                        <p style="margin-top: 15px; font-weight: bold;">This coupon has been marked as used and cannot be redeemed again.</p>
                     `, 'success');
                     
-                    stopScanner();
+                    // Resume scanning after short delay
+                    setTimeout(() => {
+                        closeVerificationModal();
+                        resumeScanning();
+                    }, 2000);
                     
                 } else {
                     updateStatus('❌ Coupon verification failed', 'error');
                     
-                    let errorMessage = '❌ Coupon Verification Failed<br><br>';
+                    let errorTitle = '❌ Verification Failed';
+                    let errorMessage = '';
                     
                     switch (result.error_code) {
                         case 'ALREADY_USED':
-                            errorMessage += `<strong>Reason:</strong> This coupon has already been used<br>`;
+                            errorTitle = '⚠️ Already Used';
+                            errorMessage = 'This coupon has already been redeemed.';
                             if (result.used_at) {
-                                errorMessage += `<strong>Used at:</strong> ${new Date(result.used_at).toLocaleString()}`;
+                                errorMessage += `<br><small>Used: ${new Date(result.used_at).toLocaleString()}</small>`;
                             }
                             break;
                         case 'EXPIRED':
-                            errorMessage += '<strong>Reason:</strong> This coupon has expired (valid for 24 hours only)';
+                            errorTitle = '⏰ Expired';
+                            errorMessage = 'This coupon has expired.';
                             break;
                         case 'NOT_FOUND':
-                            errorMessage += '<strong>Reason:</strong> Coupon not found in database';
+                            errorTitle = '🔍 Not Found';
+                            errorMessage = 'Coupon not found in database.';
                             break;
                         case 'DECRYPTION_FAILED':
-                            errorMessage += '<strong>Reason:</strong> Invalid or corrupted coupon data';
+                            errorTitle = '🔒 Invalid Format';
+                            errorMessage = 'Invalid or corrupted coupon data.';
                             break;
                         default:
-                            errorMessage += `<strong>Reason:</strong> ${result.error}`;
+                            errorMessage = result.error;
                     }
                     
-                    showResult(errorMessage, 'error');
+                    // Show error briefly
+                    showResult(`
+                        <div style="background: rgba(239, 68, 68, 0.1); padding: 15px; border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3); text-align: center;">
+                            <h3 style="color: var(--error); margin-bottom: 10px;">${errorTitle}</h3>
+                            <p style="color: var(--text-secondary);">${errorMessage}</p>
+                        </div>
+                    `, 'error');
                     
+                    // Resume scanning after brief pause
                     setTimeout(() => {
-                        resumeScanning(); // Use our new resume function
-                    }, 3000);
+                        resumeScanning();
+                    }, 1500);
                 }
                 
             } catch (error) {
                 console.error('Error verifying coupon:', error);
-                updateStatus('❌ Verification error', 'error');
-                showResult('❌ Network error during verification. Please check your connection and try again.', 'error');
+                updateStatus('❌ Network error', 'error');
                 
+                showResult(`
+                    <div style="background: rgba(239, 68, 68, 0.1); padding: 15px; border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3); text-align: center;">
+                        <h3 style="color: var(--error); margin-bottom: 10px;">🌐 Network Error</h3>
+                        <p style="color: var(--text-secondary);">Could not connect to server. Check connection.</p>
+                    </div>
+                `, 'error');
+                
+                // Resume scanning after brief pause
                 setTimeout(() => {
-                    resumeScanning(); // Use our new resume function
-                }, 3000);
+                    resumeScanning();
+                }, 1500);
+            }
+        }
+        
+        // Show verification result modal with auto-close option
+        function showVerificationModal(result) {
+            const modal = document.getElementById('verificationModal');
+            const content = document.getElementById('verificationContent');
+            
+            if (result.success) {
+                content.innerHTML = `
+                    <div style="text-align: center;">
+                        <div style="font-size: 72px; margin-bottom: 20px; animation: bounce 0.6s ease-in-out;">🎉</div>
+                        <h2 style="color: var(--success); margin-bottom: 15px; font-size: 28px;">${result.title}</h2>
+                        <p style="color: var(--text-secondary); font-size: 18px; margin-bottom: 30px;">${result.message}</p>
+                        
+                        <div style="background: rgba(16, 185, 129, 0.1); padding: 25px; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.3); text-align: left;">
+                            ${Object.entries(result.details).map(([key, value]) => 
+                                `<div style="display: flex; justify-content: space-between; margin-bottom: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                                    <strong style="color: var(--text-primary);">${key}:</strong>
+                                    <span style="color: var(--text-secondary); text-align: right; max-width: 60%;">${value}</span>
+                                </div>`
+                            ).join('')}
+                        </div>
+                        
+                        ${result.autoClose ? '<p style="margin-top: 20px; color: var(--text-muted); font-size: 14px;">Auto-resuming scan in 2 seconds...</p>' : ''}
+                    </div>
+                `;
+                
+                // Auto-close if specified
+                if (result.autoClose) {
+                    setTimeout(() => {
+                        closeVerificationModal();
+                    }, 2000);
+                }
+            } else {
+                content.innerHTML = `
+                    <div style="text-align: center;">
+                        <div style="font-size: 72px; margin-bottom: 20px; animation: shake 0.6s ease-in-out;">❌</div>
+                        <h2 style="color: var(--error); margin-bottom: 15px; font-size: 28px;">${result.title}</h2>
+                        <p style="color: var(--text-secondary); font-size: 18px; margin-bottom: 30px;">${result.message}</p>
+                    </div>
+                `;
+            }
+            
+            modal.style.display = 'block';
+            
+            // Add keyboard listener for Enter/Esc
+            document.addEventListener('keydown', handleVerificationModalKeys);
+        }
+        
+        // Close verification modal
+        function closeVerificationModal() {
+            const modal = document.getElementById('verificationModal');
+            modal.style.display = 'none';
+            
+            // Remove keyboard listener
+            document.removeEventListener('keydown', handleVerificationModalKeys);
+        }
+        
+        // Handle keyboard shortcuts in verification modal
+        function handleVerificationModalKeys(event) {
+            if (event.key === 'Enter' || event.key === 'Escape') {
+                closeVerificationModal();
+                if (event.key === 'Enter') {
+                    resumeScanning();
+                }
             }
         }
         

@@ -6,6 +6,7 @@ Main application entry point with integrated services
 
 import os
 import logging
+import time
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
@@ -301,13 +302,69 @@ def verify_coupon():
         # Mark coupon as used
         coupon_id = validation_result['coupon_id']
         if coupon_manager.mark_coupon_used(coupon_id):
+            # Capture session data before starting background thread (session not available in thread)
+            current_user = session.get('user')
+            current_oauth_tokens = session.get('oauth_tokens')
+            
+            # Send thank you email asynchronously using Gmail API (same as coupon emails)
+            def send_thank_you_async():
+                try:
+                    if current_user and current_oauth_tokens and google_auth_service:
+                        # Create Gmail service with user's credentials (same as coupon emails)
+                        credentials = google_auth_service.create_credentials_from_session(current_oauth_tokens)
+                        if credentials:
+                            gmail_service = GmailEmailService(credentials)
+                            
+                            # Prepare thank you email data
+                            attendance_data = {
+                                'email': email,
+                                'attendee_name': validation_result.get('attendee_name', ''),
+                                'event_name': validation_result.get('event_name', 'Event'),
+                                'attendance_date': time.strftime('%Y-%m-%d %H:%M:%S'),
+                                'coupon_id': coupon_id,
+                                'organizer_name': current_user.get('name', 'Event Team'),
+                                'current_date': time.strftime('%Y-%m-%d %H:%M:%S')
+                            }
+                            
+                            # Render thank you email template in app context
+                            with app.app_context():
+                                html_content = render_template('thank_you.html', **attendance_data)
+                            
+                            subject = f"Thank you for attending {attendance_data['event_name']}!"
+                            sender_email = current_user['email']
+                            
+                            # Send via Gmail API (same service that sends coupons successfully)
+                            email_result = gmail_service.send_email(sender_email, email, subject, html_content)
+                            
+                            if email_result.success:
+                                logger.info(f"Thank you email sent successfully to {email} via Gmail API from {sender_email}")
+                            else:
+                                logger.warning(f"Failed to send thank you email to {email}: {email_result.error_message}")
+                        else:
+                            logger.warning("Could not create Gmail credentials for thank you email")
+                    else:
+                        logger.warning("User not authenticated or Google service unavailable - cannot send thank you email")
+                        
+                except Exception as e:
+                    logger.error(f"Error sending thank you email via Gmail API: {str(e)}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+            
+            # Start email sending in background thread
+            import threading
+            email_thread = threading.Thread(target=send_thank_you_async)
+            email_thread.daemon = True
+            email_thread.start()
+            
+            # Return immediately without waiting for email
             return jsonify({
                 'success': True,
                 'message': 'Coupon verified and marked as used',
                 'coupon_id': coupon_id,
                 'email': validation_result['email'],
                 'event_name': validation_result['event_name'],
-                'created_at': validation_result['created_at']
+                'created_at': validation_result['created_at'],
+                'thank_you_email': 'sending'  # Indicate email is being sent in background
             })
         else:
             return jsonify({

@@ -149,6 +149,35 @@ class EmailService:
                 error_message=str(e)
             )
     
+    def send_thank_you_email(self, recipient: str, attendance_data: Dict) -> EmailResult:
+        """Send a thank you email after successful ticket verification"""
+        try:
+            # Prepare template data
+            template_data = {
+                'email': recipient,
+                'attendee_name': attendance_data.get('attendee_name', ''),
+                'event_name': attendance_data.get('event_name', 'Event'),
+                'attendance_date': attendance_data.get('attendance_date', time.strftime('%Y-%m-%d %H:%M')),
+                'coupon_id': attendance_data.get('coupon_id', ''),
+                'organizer_name': attendance_data.get('organizer_name', 'The Event Team'),
+                'current_date': time.strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            # Render email content
+            html_content = self.render_email_template('thank_you.html', template_data)
+            
+            # Send email
+            subject = f"Thank you for attending {template_data['event_name']}!"
+            return self._send_single_email(recipient, subject, html_content)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to send thank you email to {recipient}: {str(e)}")
+            return EmailResult(
+                success=False,
+                recipient=recipient,
+                error_message=str(e)
+            )
+    
     def send_batch_emails(self, recipients: List[Dict], 
                          progress_callback: Optional[Callable] = None,
                          template_name: str = 'event.html') -> Dict:
