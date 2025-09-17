@@ -35,19 +35,25 @@ logs/
 uploads/
 backups/
 coupons.csv
+responses - Sheet1.csv
 sample_attendees.csv
 
 # Ngrok
 ngrok
 ngrok.exe
 .ngrok2/
+ngrok.log
 
 # Kiro
 .kiro/
-*.csv
-*.env*
-*backup*
-.ngrok*
 
 # Credentials
 organizer_credentials.json
+
+# Unused Code and Scripts
+old_code/
+database_models.py
+email_service.py
+test_qr_recognition.py
+test_scanner_improvements.py
+setup.py
