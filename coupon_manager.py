@@ -6,6 +6,8 @@ Handles coupon generation, QR code creation, and validation.
 import uuid
 import qrcode
 import base64
+import random
+import string
 from io import BytesIO
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
@@ -27,6 +29,10 @@ class CouponManager:
     def generate_coupon_id(self) -> str:
         """Generate unique coupon ID using UUID4"""
         return str(uuid.uuid4())
+    
+    def generate_verification_code(self) -> str:
+        """Generate 6-digit verification code"""
+        return ''.join(random.choices(string.digits, k=6))
     
     def create_qr_code(self, data: str) -> str:
         """
@@ -65,7 +71,7 @@ class CouponManager:
     
     def generate_coupon(self, email: str, event_name: str = "Special Event") -> Dict[str, Any]:
         """
-        Generate a complete coupon with encrypted data and QR code
+        Generate a complete coupon with encrypted data, simple QR code, and 6-digit verification code
         
         Args:
             email: Recipient email address
@@ -75,14 +81,16 @@ class CouponManager:
             Dictionary containing coupon data
         """
         try:
-            # Generate unique coupon ID
+            # Generate unique identifiers
             coupon_id = self.generate_coupon_id()
+            verification_code = self.generate_verification_code()
             
             # Create coupon data
             coupon_data = {
                 'coupon_id': coupon_id,
                 'email': email.lower(),
                 'event_name': event_name,
+                'verification_code': verification_code,
                 'created_at': datetime.now(timezone.utc).isoformat(),
                 'valid': True
             }
@@ -90,11 +98,10 @@ class CouponManager:
             # Encrypt coupon data
             encrypted_data = self.encryption_service.encrypt_coupon_data(coupon_data, email)
             
-            # Create QR code data with both email and encrypted data for fast scanning
+            # Create SIMPLE QR code with just the verification code and email for fast scanning
             qr_data = {
-                'email': email.lower(),
-                'data': encrypted_data,
-                'coupon_id': coupon_id
+                'v': verification_code,  # Short key for verification code
+                'e': email.lower()       # Short key for email
             }
             qr_code_base64 = self.create_qr_code(json.dumps(qr_data))
             
@@ -104,12 +111,13 @@ class CouponManager:
                 email=email.lower(),
                 encrypted_data=encrypted_data,
                 qr_code_data=qr_code_base64,
+                verification_code=verification_code,
                 status='generated'
             )
             
             # Save to CSV
             if self.csv_manager.save_coupon(coupon_record):
-                self.logger.info(f"Generated coupon {coupon_id} for {email}")
+                self.logger.info(f"Generated coupon {coupon_id} for {email} with verification code {verification_code}")
                 
                 return {
                     'coupon_id': coupon_id,
@@ -117,6 +125,7 @@ class CouponManager:
                     'event_name': event_name,
                     'qr_code_base64': qr_code_base64,
                     'encrypted_data': encrypted_data,
+                    'verification_code': verification_code,
                     'success': True
                 }
             else:
@@ -160,24 +169,26 @@ class CouponManager:
             
             try:
                 # Generate coupon data
+                # Generate unique identifiers
                 coupon_id = self.generate_coupon_id()
+                verification_code = self.generate_verification_code()
                 
                 coupon_data = {
                     'coupon_id': coupon_id,
                     'email': email.lower(),
                     'event_name': event_name,
+                    'verification_code': verification_code,
                     'created_at': datetime.now(timezone.utc).isoformat(),
                     'valid': True
                 }
                 
-                # Encrypt and create QR code
+                # Encrypt and create simple QR code
                 encrypted_data = self.encryption_service.encrypt_coupon_data(coupon_data, email)
                 
-                # Create QR code data with both email and encrypted data for fast scanning
+                # Create SIMPLE QR code with just verification code and email
                 qr_data = {
-                    'email': email.lower(),
-                    'data': encrypted_data,
-                    'coupon_id': coupon_id
+                    'v': verification_code,  # Short key for verification code
+                    'e': email.lower()       # Short key for email
                 }
                 qr_code_base64 = self.create_qr_code(json.dumps(qr_data))
                 
@@ -187,6 +198,7 @@ class CouponManager:
                     email=email.lower(),
                     encrypted_data=encrypted_data,
                     qr_code_data=qr_code_base64,
+                    verification_code=verification_code,
                     status='generated'
                 )
                 
@@ -198,7 +210,8 @@ class CouponManager:
                     'email': email,
                     'event_name': event_name,
                     'qr_code_base64': qr_code_base64,
-                    'encrypted_data': encrypted_data
+                    'encrypted_data': encrypted_data,
+                    'verification_code': verification_code
                 })
                 
                 results['generated'] += 1
@@ -286,6 +299,76 @@ class CouponManager:
             }
         except Exception as e:
             self.logger.error(f"Unexpected error during coupon validation: {str(e)}")
+            return {
+                'valid': False,
+                'error': 'System error during validation',
+                'error_code': 'SYSTEM_ERROR'
+            }
+    
+    def validate_coupon_by_code(self, verification_code: str, email: str) -> Dict[str, Any]:
+        """
+        Validate a coupon using 6-digit verification code
+        
+        Args:
+            verification_code: 6-digit verification code
+            email: Email address for security verification
+            
+        Returns:
+            Dictionary with validation result
+        """
+        try:
+            # Find coupon by verification code and email
+            coupon_record = self.csv_manager.find_coupon_by_verification_code(verification_code, email)
+            
+            if not coupon_record:
+                return {
+                    'valid': False,
+                    'error': 'Invalid verification code or email',
+                    'error_code': 'NOT_FOUND'
+                }
+            
+            # Check if already used
+            if coupon_record.status == 'used':
+                return {
+                    'valid': False,
+                    'error': 'This coupon has already been used',
+                    'error_code': 'ALREADY_USED',
+                    'used_at': coupon_record.used_at
+                }
+            
+            # Decrypt and validate the coupon data
+            try:
+                decrypted_data = self.encryption_service.decrypt_coupon_data(
+                    coupon_record.encrypted_data, 
+                    coupon_record.email
+                )
+                
+                if decrypted_data and decrypted_data.get('valid', False):
+                    return {
+                        'valid': True,
+                        'coupon_id': coupon_record.coupon_id,
+                        'email': coupon_record.email,
+                        'event_name': decrypted_data.get('event_name', 'Event'),
+                        'created_at': decrypted_data.get('created_at'),
+                        'verification_code': verification_code
+                    }
+                else:
+                    return {
+                        'valid': False,
+                        'error': 'Coupon data is invalid',
+                        'error_code': 'INVALID_DATA'
+                    }
+                    
+            except Exception as decrypt_error:
+                self.logger.error(f"Decryption failed for verification code {verification_code}: {str(decrypt_error)}")
+                return {
+                    'valid': False,
+                    'error': 'Failed to decrypt coupon data',
+                    'error_code': 'DECRYPTION_FAILED'
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Error validating verification code {verification_code}: {str(e)}")
             return {
                 'valid': False,
                 'error': 'System error during validation',

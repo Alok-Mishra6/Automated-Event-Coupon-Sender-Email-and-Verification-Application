@@ -406,6 +406,53 @@
             line-height: 1.4;
         }
         
+        .form-group textarea {
+            width: 100%;
+            padding: 16px;
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            font-size: 14px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 80px;
+        }
+        
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+            transform: translateY(-1px);
+        }
+        
+        /* Special styling for verification code input */
+        #verificationCode {
+            font-family: 'Courier New', monospace !important;
+            font-size: 20px !important;
+            text-align: center !important;
+            letter-spacing: 3px !important;
+            font-weight: bold;
+        }
+        
+        #verificationCode:focus {
+            border-color: #3b82f6 !important;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2) !important;
+        }
+        
+        /* Button styling variants */
+        .btn-secondary {
+            background: var(--text-secondary);
+            color: var(--bg-primary);
+        }
+        
+        .btn-secondary:hover {
+            background: var(--text-primary);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+        
         .status-indicator {
             display: inline-block;
             width: 12px;
@@ -615,23 +662,53 @@
             
             <div class="manual-entry">
                 <h3>🔍 Manual Verification</h3>
-                <p>If the scanner isn't working, you can manually enter the coupon details:</p>
+                <p>If the scanner isn't working, you can manually verify coupons using either method:</p>
                 
-                <div class="form-group">
-                    <label for="manualData">Coupon QR Code Data</label>
-                    <input type="text" id="manualData" placeholder="Paste the complete QR code data here">
-                    <small style="color: #666; font-size: 12px;">For new coupons, this contains all needed information. For old coupons, you'll need the email below.</small>
+                <!-- 6-Digit Code Method (Primary) -->
+                <div style="background: rgba(59, 130, 246, 0.05); padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid rgba(59, 130, 246, 0.2);">
+                    <h4 style="color: #3b82f6; margin-bottom: 10px;">🔢 6-Digit Code Verification (Recommended)</h4>
+                    <p style="font-size: 14px; color: #666; margin-bottom: 15px;">For new coupons with 6-digit verification codes:</p>
+                    
+                    <div class="form-group">
+                        <label for="verificationCode">6-Digit Verification Code</label>
+                        <input type="text" id="verificationCode" placeholder="123456" maxlength="6" pattern="[0-9]{6}" 
+                               style="font-family: monospace; font-size: 18px; text-align: center; letter-spacing: 2px;">
+                        <small style="color: #666; font-size: 12px;">Enter the 6-digit code from the coupon</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="codeEmail">Recipient Email</label>
+                        <input type="email" id="codeEmail" placeholder="recipient@example.com">
+                        <small style="color: #666; font-size: 12px;">Email address of the coupon recipient</small>
+                    </div>
+                    
+                    <button class="btn btn-primary" onclick="verifyByCodeManual()" style="background: #3b82f6;">
+                        ✅ Verify with Code
+                    </button>
                 </div>
                 
-                <div class="form-group">
-                    <label for="manualEmail">Email Address (if needed)</label>
-                    <input type="email" id="manualEmail" placeholder="Enter recipient email (only for old format coupons)">
-                    <small style="color: #666; font-size: 12px;">Only required for older coupon formats. New coupons include the email automatically.</small>
+                <!-- QR Data Method (Legacy) -->
+                <div style="background: rgba(107, 114, 128, 0.05); padding: 15px; border-radius: 8px; border: 1px solid rgba(107, 114, 128, 0.2);">
+                    <h4 style="color: #6b7280; margin-bottom: 10px;">📱 QR Code Data Verification (Legacy)</h4>
+                    <p style="font-size: 14px; color: #666; margin-bottom: 15px;">For older coupons or when you have the full QR code data:</p>
+                    
+                    <div class="form-group">
+                        <label for="manualData">Complete QR Code Data</label>
+                        <textarea id="manualData" placeholder="Paste the complete QR code data here" rows="3" 
+                                style="font-family: monospace; font-size: 12px;"></textarea>
+                        <small style="color: #666; font-size: 12px;">For new coupons, this contains all needed information. For old coupons, you'll need the email below.</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="manualEmail">Email Address (if needed)</label>
+                        <input type="email" id="manualEmail" placeholder="Enter recipient email (only for old format coupons)">
+                        <small style="color: #666; font-size: 12px;">Only required for older coupon formats. New coupons include the email automatically.</small>
+                    </div>
+                    
+                    <button class="btn btn-secondary" onclick="verifyManual()">
+                        ✅ Verify with QR Data
+                    </button>
                 </div>
-                
-                <button class="btn btn-primary" onclick="verifyManual()">
-                    ✅ Verify Coupon
-                </button>
             </div>
         </div>
     </div>
@@ -2260,16 +2337,24 @@
             detectionState.consecutiveDetections = 0;
             
             try {
-                // Try to parse as new format (JSON with email and data)
+                // Try to parse as new simple format (JSON with verification code and email)
                 const parsedData = JSON.parse(qrData);
-                if (parsedData.email && parsedData.data) {
-                    console.log('New format QR detected:', parsedData.email);
-                    updateStatus(`📧 Processing coupon for ${parsedData.email}`, 'info');
+                
+                if (parsedData.v && parsedData.e) {
+                    // New simple format: {v: "123456", e: "email@example.com"}
+                    console.log('Simple QR format detected:', parsedData.e, 'code:', parsedData.v);
+                    updateStatus(`📧 Verifying code ${parsedData.v} for ${parsedData.e}`, 'info');
+                    verifyByCode(parsedData.v, parsedData.e);
+                    return;
+                } else if (parsedData.email && parsedData.data) {
+                    // Old complex format: {email: "...", data: "encrypted..."}
+                    console.log('Legacy complex QR detected:', parsedData.email);
+                    updateStatus(`📧 Processing legacy coupon for ${parsedData.email}`, 'info');
                     verifyCoupon(parsedData.data, parsedData.email);
                     return;
                 }
             } catch (e) {
-                console.log('Not JSON format, treating as legacy QR');
+                console.log('Not JSON format, treating as legacy encrypted data');
             }
             
             // Handle legacy format (just encrypted data)
@@ -2330,6 +2415,132 @@
                     document.getElementById('startBtn').click();
                 }, 500);
             }
+        }
+        
+        // Verify using 6-digit code and email
+        function verifyByCode(verificationCode, email) {
+            console.log('Starting code verification for:', email, 'code:', verificationCode);
+            
+            fetch('/verify-coupon', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    verification_code: verificationCode,
+                    email: email
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                detectionState.processingQR = false;
+                
+                if (data.success) {
+                    console.log('Code verification successful:', data);
+                    
+                    // Play success sound if available
+                    if (window.successSound) {
+                        window.successSound.play().catch(e => console.log('Could not play success sound'));
+                    }
+                    
+                    updateStatus('✅ Code verified successfully!', 'success');
+                    showResult(`
+                        <div style="background: rgba(34, 197, 94, 0.1); padding: 20px; border-radius: 12px; border: 1px solid rgba(34, 197, 94, 0.3);">
+                            <h3 style="color: #22c55e; margin-bottom: 15px;">✅ Verification Successful!</h3>
+                            <div style="font-size: 16px; line-height: 1.6;">
+                                <p><strong>📧 Email:</strong> ${data.email}</p>
+                                <p><strong>� Event:</strong> ${data.event_name || 'Event'}</p>
+                                <p><strong>� Code:</strong> ${verificationCode}</p>
+                                <p><strong>� Verified:</strong> ${new Date().toLocaleString()}</p>
+                                <p><strong>✉️ Thank You Email:</strong> ${data.thank_you_email === 'sending' ? 'Sending...' : 'Sent'}</p>
+                            </div>
+                            
+                            <div style="margin-top: 20px; text-align: center;">
+                                <button onclick="resumeScanning()" class="btn btn-primary">
+                                    🔄 Continue Scanning
+                                </button>
+                            </div>
+                        </div>
+                    `, 'success');
+                    
+                    // Auto-resume scanning after success (faster for rapid scanning)
+                    setTimeout(() => {
+                        if (!document.hasFocus || document.hasFocus()) {
+                            updateStatus('🔄 Ready for next scan...', 'scanning');
+                            resumeScanning();
+                        }
+                    }, 1500);  // Reduced from 3000ms to 1500ms for faster turnaround
+                    
+                } else {
+                    console.log('Code verification failed:', data);
+                    updateStatus('❌ Code verification failed', 'error');
+                    
+                    // Determine error type
+                    let errorMessage = data.message || 'Invalid code or email';
+                    let errorDetails = '';
+                    
+                    if (data.message && data.message.includes('expired')) {
+                        errorDetails = '<p>This coupon has expired and cannot be used.</p>';
+                    } else if (data.message && data.message.includes('used')) {
+                        errorDetails = '<p>This coupon has already been redeemed.</p>';
+                    } else {
+                        errorDetails = '<p>The verification code and email combination is not valid.</p>';
+                    }
+                    
+                    showResult(`
+                        <div style="background: rgba(239, 68, 68, 0.1); padding: 20px; border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">
+                            <h3 style="color: #ef4444; margin-bottom: 15px;">❌ Verification Failed</h3>
+                            <p><strong>Error:</strong> ${errorMessage}</p>
+                            ${errorDetails}
+                            <p><strong>Code:</strong> ${verificationCode}</p>
+                            <p><strong>Email:</strong> ${email}</p>
+                            
+                            <div style="text-align: center; margin-top: 20px;">
+                                <button onclick="resumeScanning()" class="btn btn-primary" style="margin-right: 10px;">
+                                    🔄 Try Again
+                                </button>
+                                <button onclick="document.querySelector('.manual-entry').scrollIntoView({behavior: 'smooth'})" class="btn btn-secondary">
+                                    📝 Manual Entry
+                                </button>
+                            </div>
+                        </div>
+                    `, 'error');
+                    
+                    // Auto-resume scanning after verification failure (give user time to see the error)
+                    setTimeout(() => {
+                        updateStatus('🔄 Ready for next scan...', 'scanning');
+                        resumeScanning();
+                    }, 3000);
+                }
+            })
+            .catch(error => {
+                detectionState.processingQR = false;
+                console.error('Code verification error:', error);
+                console.error('Error details:', error.message, error.stack);
+                
+                updateStatus('❌ Error during verification', 'error');
+                
+                showResult(`
+                    <div style="background: rgba(239, 68, 68, 0.1); padding: 20px; border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">
+                        <h3 style="color: #ef4444; margin-bottom: 15px;">❌ Verification Error</h3>
+                        <p><strong>There was an error processing the verification.</strong></p>
+                        <p>Error: ${error.message || 'Unknown error occurred'}</p>
+                        <p>Please try scanning again or use manual verification.</p>
+                        
+                        <div style="text-align: center; margin-top: 20px;">
+                            <button onclick="resumeScanning()" class="btn btn-primary">
+                                🔄 Try Again
+                            </button>
+                        </div>
+                    </div>
+                `, 'error');
+                
+                // Auto-resume scanning after error (give user time to see the error)
+                setTimeout(() => {
+                    updateStatus('🔄 Retrying scanner...', 'scanning');
+                    resumeScanning();
+                }, 4000);
+            });
         }
         
         // Coupon verification with immediate scanning resume
@@ -2511,6 +2722,44 @@
                     resumeScanning();
                 }
             }
+        }
+        
+        // Manual verification using 6-digit code
+        function verifyByCodeManual() {
+            const verificationCode = document.getElementById('verificationCode').value.trim();
+            const email = document.getElementById('codeEmail').value.trim();
+            
+            // Validate inputs
+            if (!verificationCode) {
+                showResult('❌ Please enter the 6-digit verification code.', 'error');
+                document.getElementById('verificationCode').focus();
+                return;
+            }
+            
+            if (!/^\d{6}$/.test(verificationCode)) {
+                showResult('❌ Verification code must be exactly 6 digits.', 'error');
+                document.getElementById('verificationCode').focus();
+                return;
+            }
+            
+            if (!email) {
+                showResult('❌ Please enter the recipient email address.', 'error');
+                document.getElementById('codeEmail').focus();
+                return;
+            }
+            
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                showResult('❌ Please enter a valid email address.', 'error');
+                document.getElementById('codeEmail').focus();
+                return;
+            }
+            
+            // Clear the form for next use
+            document.getElementById('verificationCode').value = '';
+            document.getElementById('codeEmail').value = '';
+            
+            // Use the existing verifyByCode function
+            verifyByCode(verificationCode, email);
         }
         
         // Manual verification
@@ -2717,13 +2966,68 @@
                     captureAndScan();
                 }
                 
-                // Enter key for manual verification
+                // Enter key for 6-digit code verification
+                if (event.code === 'Enter' && (
+                    document.activeElement === document.getElementById('verificationCode') ||
+                    document.activeElement === document.getElementById('codeEmail')
+                )) {
+                    event.preventDefault();
+                    verifyByCodeManual();
+                }
+                
+                // Enter key for manual QR data verification
                 if (event.code === 'Enter' && (
                     document.activeElement === document.getElementById('manualData') ||
                     document.activeElement === document.getElementById('manualEmail')
                 )) {
                     event.preventDefault();
                     verifyManual();
+                }
+                
+                // Auto-format verification code input
+                if (document.activeElement === document.getElementById('verificationCode')) {
+                    // Only allow digits
+                    if (event.key.length === 1 && !/\d/.test(event.key)) {
+                        event.preventDefault();
+                    }
+                }
+            });
+            
+            // Auto-format verification code input and handle auto-advance
+            document.getElementById('verificationCode').addEventListener('input', function(event) {
+                let value = event.target.value.replace(/\D/g, ''); // Remove non-digits
+                
+                // Limit to 6 digits
+                if (value.length > 6) {
+                    value = value.slice(0, 6);
+                }
+                
+                event.target.value = value;
+                
+                // Auto-advance to email field when 6 digits are entered
+                if (value.length === 6) {
+                    setTimeout(() => {
+                        document.getElementById('codeEmail').focus();
+                    }, 100);
+                }
+            });
+            
+            // Auto-submit when both verification code and email are filled
+            document.getElementById('codeEmail').addEventListener('input', function(event) {
+                const code = document.getElementById('verificationCode').value;
+                const email = event.target.value.trim();
+                
+                // Auto-submit if both fields are properly filled
+                if (code.length === 6 && email.includes('@') && email.includes('.')) {
+                    // Small delay to ensure the user finished typing
+                    setTimeout(() => {
+                        const currentCode = document.getElementById('verificationCode').value;
+                        const currentEmail = document.getElementById('codeEmail').value.trim();
+                        
+                        if (currentCode === code && currentEmail === email && currentCode.length === 6) {
+                            verifyByCodeManual();
+                        }
+                    }, 500);
                 }
             });
             

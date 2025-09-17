@@ -44,3 +44,10 @@ ngrok.exe
 
 # Kiro
 .kiro/
+*.csv
+*.env*
+*backup*
+.ngrok*
+
+# Credentials
+organizer_credentials.json

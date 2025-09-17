@@ -7,6 +7,15 @@ Main application entry point with integrated services
 import os
 import logging
 import time
+import threading
+import shutil
+from datetime import datetime
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from werkzeug.utils import secure_filename
+from dotenv import load_dotenv
+import secrets
+import logging
+import time
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
@@ -220,6 +229,7 @@ def send_emails():
                 'coupon_id': coupon['coupon_id'],
                 'event_name': coupon['event_name'],
                 'qr_code_base64': coupon['qr_code_base64'],
+                'verification_code': coupon['verification_code'],  # Include 6-digit code
                 'subject': f'Your Digital Coupon for {event_name}'
             })
         
@@ -242,13 +252,32 @@ def send_emails():
         )
         
         # Update coupon status for successfully sent emails
+        successful_emails = []
+        failed_emails = []
+        
         for result in email_results['results']:
             if result.success:
+                successful_emails.append(result.recipient)
                 # Find the coupon for this recipient and mark as sent
                 for coupon in coupon_results['coupons']:
                     if coupon['email'] == result.recipient:
                         coupon_manager.mark_coupon_sent(coupon['coupon_id'])
                         break
+            else:
+                failed_emails.append({
+                    'email': result.recipient,
+                    'error': result.error_message,
+                    'timestamp': result.timestamp
+                })
+        
+        # Save failed emails to CSV if any failures occurred
+        failure_log_file = None
+        if failed_emails:
+            failure_log_file = csv_manager.save_failed_emails(failed_emails, event_name)
+            logger.warning(f"Saved {len(failed_emails)} failed emails to {failure_log_file}")
+        
+        # Save organizer credentials for thank you emails during verification
+        csv_manager.save_organizer_credentials(user, oauth_tokens, event_name)
         
         # Update OAuth tokens in session if they were refreshed
         updated_credentials = gmail_service.credentials
@@ -262,6 +291,9 @@ def send_emails():
             'emails_sent': email_results['sent'],
             'emails_failed': email_results['failed'],
             'total_recipients': len(recipients),
+            'successful_emails': successful_emails,
+            'failed_emails': failed_emails,
+            'failure_log_file': failure_log_file,
             'start_time': email_results['start_time'],
             'end_time': email_results['end_time']
         })
@@ -272,24 +304,36 @@ def send_emails():
 
 @app.route('/verify-coupon', methods=['POST'])
 def verify_coupon():
-    """Verify QR coupon and mark as used"""
+    """Verify QR coupon or verification code and mark as used"""
     if not coupon_manager:
         return jsonify({'success': False, 'error': 'Coupon manager not initialized'}), 500
     
     try:
         data = request.get_json()
         encrypted_data = data.get('encrypted_data')
+        verification_code = data.get('verification_code')
         email = data.get('email')
         
-        if not encrypted_data or not email:
+        if not email:
             return jsonify({
                 'success': False, 
-                'error': 'Missing encrypted_data or email',
-                'error_code': 'MISSING_DATA'
+                'error': 'Email is required',
+                'error_code': 'MISSING_EMAIL'
             }), 400
         
-        # Validate the coupon
-        validation_result = coupon_manager.validate_coupon(encrypted_data, email)
+        # Check if this is a verification code (6 digits) or encrypted data
+        if verification_code and len(verification_code) == 6 and verification_code.isdigit():
+            # Validate using verification code
+            validation_result = coupon_manager.validate_coupon_by_code(verification_code, email)
+        elif encrypted_data:
+            # Validate using encrypted data (old method)
+            validation_result = coupon_manager.validate_coupon(encrypted_data, email)
+        else:
+            return jsonify({
+                'success': False, 
+                'error': 'Either verification_code (6 digits) or encrypted_data is required',
+                'error_code': 'MISSING_DATA'
+            }), 400
         
         if not validation_result.get('valid'):
             return jsonify({
@@ -302,16 +346,15 @@ def verify_coupon():
         # Mark coupon as used
         coupon_id = validation_result['coupon_id']
         if coupon_manager.mark_coupon_used(coupon_id):
-            # Capture session data before starting background thread (session not available in thread)
-            current_user = session.get('user')
-            current_oauth_tokens = session.get('oauth_tokens')
-            
-            # Send thank you email asynchronously using Gmail API (same as coupon emails)
+            # Send thank you email asynchronously using organizer's Gmail API credentials
             def send_thank_you_async():
                 try:
-                    if current_user and current_oauth_tokens and google_auth_service:
-                        # Create Gmail service with user's credentials (same as coupon emails)
-                        credentials = google_auth_service.create_credentials_from_session(current_oauth_tokens)
+                    # Get stored organizer credentials
+                    organizer_data = csv_manager.get_organizer_credentials()
+                    
+                    if organizer_data and google_auth_service:
+                        # Create Gmail service with organizer's credentials
+                        credentials = google_auth_service.create_credentials_from_session(organizer_data['oauth_tokens'])
                         if credentials:
                             gmail_service = GmailEmailService(credentials)
                             
@@ -322,7 +365,8 @@ def verify_coupon():
                                 'event_name': validation_result.get('event_name', 'Event'),
                                 'attendance_date': time.strftime('%Y-%m-%d %H:%M:%S'),
                                 'coupon_id': coupon_id,
-                                'organizer_name': current_user.get('name', 'Event Team'),
+                                'organizer_name': organizer_data['user_info'].get('name', 'Event Team'),
+                                'organizer_email': organizer_data['user_info'].get('email', 'Event Team'),
                                 'current_date': time.strftime('%Y-%m-%d %H:%M:%S')
                             }
                             
@@ -331,27 +375,26 @@ def verify_coupon():
                                 html_content = render_template('thank_you.html', **attendance_data)
                             
                             subject = f"Thank you for attending {attendance_data['event_name']}!"
-                            sender_email = current_user['email']
+                            sender_email = organizer_data['user_info']['email']
                             
-                            # Send via Gmail API (same service that sends coupons successfully)
+                            # Send via Gmail API using organizer's credentials
                             email_result = gmail_service.send_email(sender_email, email, subject, html_content)
                             
                             if email_result.success:
-                                logger.info(f"Thank you email sent successfully to {email} via Gmail API from {sender_email}")
+                                logger.info(f"Thank you email sent successfully to {email} via Gmail API from organizer {sender_email}")
                             else:
                                 logger.warning(f"Failed to send thank you email to {email}: {email_result.error_message}")
                         else:
-                            logger.warning("Could not create Gmail credentials for thank you email")
+                            logger.warning("Could not create Gmail credentials from stored organizer data")
                     else:
-                        logger.warning("User not authenticated or Google service unavailable - cannot send thank you email")
+                        logger.warning("No organizer credentials stored - cannot send thank you email")
                         
                 except Exception as e:
-                    logger.error(f"Error sending thank you email via Gmail API: {str(e)}")
+                    logger.error(f"Error sending thank you email via organizer Gmail API: {str(e)}")
                     import traceback
                     logger.error(traceback.format_exc())
             
             # Start email sending in background thread
-            import threading
             email_thread = threading.Thread(target=send_thank_you_async)
             email_thread.daemon = True
             email_thread.start()
@@ -410,6 +453,7 @@ def coupon_status(coupon_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/upload-csv', methods=['POST'])
+@login_required
 def upload_csv():
     """Handle CSV file uploads and validation"""
     if not csv_manager:
@@ -423,8 +467,12 @@ def upload_csv():
         if file.filename == '':
             return jsonify({'success': False, 'error': 'No file selected'}), 400
         
-        if not file.filename.lower().endswith('.csv'):
+        if not file.filename or not file.filename.lower().endswith('.csv'):
             return jsonify({'success': False, 'error': 'File must be a CSV'}), 400
+        
+        # Get upload options
+        data = request.form
+        reset_coupons = data.get('reset_coupons', 'false').lower() == 'true'
         
         # Save uploaded file
         filename = secure_filename(file.filename)
@@ -442,20 +490,51 @@ def upload_csv():
                 'details': validation_result
             }), 400
         
+        # Create backup of existing data if requested
+        backup_created = ""
+        if reset_coupons and os.path.exists(csv_manager.coupons_file):
+            backup_created = csv_manager.backup_current_data()
+        
         # If valid, replace the current recipients file
-        import shutil
         shutil.move(filepath, csv_manager.recipients_file)
+        
+        # Reset coupons if requested (for fresh campaign)
+        coupons_reset = False
+        if reset_coupons:
+            coupons_reset = csv_manager.reset_coupons_for_fresh_upload()
+        
+        logger.info(f"CSV uploaded successfully. Reset coupons: {coupons_reset}, Backup: {backup_created}")
         
         return jsonify({
             'success': True,
             'message': 'CSV file uploaded successfully',
             'total_rows': validation_result['total_rows'],
             'valid_emails': validation_result['valid_emails'],
-            'invalid_emails': validation_result['invalid_emails']
+            'invalid_emails': validation_result['invalid_emails'],
+            'coupons_reset': coupons_reset,
+            'backup_created': backup_created
         })
         
     except Exception as e:
         logger.error(f"Error uploading CSV: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/upload-status')
+@login_required
+def get_upload_status():
+    """Get current upload and CSV status"""
+    if not csv_manager:
+        return jsonify({'success': False, 'error': 'CSV manager not initialized'}), 500
+    
+    try:
+        status = csv_manager.get_upload_status()
+        return jsonify({
+            'success': True,
+            **status
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting upload status: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/stats')
@@ -604,6 +683,59 @@ def preview_send():
     except Exception as e:
         logger.error(f"Error previewing send: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/failed-emails-logs')
+@login_required
+def get_failed_emails_logs():
+    """Get list of failed email log files"""
+    try:
+        logs_dir = 'logs'
+        if not os.path.exists(logs_dir):
+            return jsonify({'success': True, 'logs': []})
+        
+        log_files = []
+        for filename in os.listdir(logs_dir):
+            if filename.startswith('failed_emails_') and filename.endswith('.csv'):
+                filepath = os.path.join(logs_dir, filename)
+                stat = os.stat(filepath)
+                log_files.append({
+                    'filename': filename,
+                    'filepath': filepath,
+                    'size': stat.st_size,
+                    'created': datetime.fromtimestamp(stat.st_ctime).strftime('%Y-%m-%d %H:%M:%S')
+                })
+        
+        # Sort by creation time, newest first
+        log_files.sort(key=lambda x: x['created'], reverse=True)
+        
+        return jsonify({
+            'success': True,
+            'logs': log_files
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting failed email logs: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/download-failed-emails/<filename>')
+@login_required
+def download_failed_emails(filename):
+    """Download a specific failed emails log file"""
+    try:
+        # Security check: ensure filename is safe
+        if not filename.startswith('failed_emails_') or not filename.endswith('.csv'):
+            return jsonify({'error': 'Invalid filename'}), 400
+        
+        filepath = os.path.join('logs', filename)
+        if not os.path.exists(filepath):
+            return jsonify({'error': 'File not found'}), 404
+        
+        from flask import send_file
+        return send_file(filepath, as_attachment=True, download_name=filename)
+        
+    except Exception as e:
+        logger.error(f"Error downloading failed emails file: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 # Error handlers
 @app.errorhandler(404)

@@ -975,13 +975,25 @@
                     progressFill.style.width = '100%';
                     progressText.textContent = `✅ Campaign completed successfully!`;
                     
-                    showAlert('campaignAlert', 
-                        `🎉 Campaign sent successfully from ${data.sender_email}!<br>
+                    // Build detailed message with failure information if any
+                    let alertMessage = `🎉 Campaign sent successfully from ${data.sender_email}!<br>
                         📧 ${data.emails_sent} emails sent<br>
                         🎫 ${data.coupons_generated} coupons generated<br>
-                        ❌ ${data.emails_failed} failed deliveries`, 
-                        'success'
-                    );
+                        ❌ ${data.emails_failed} failed deliveries`;
+                    
+                    // Add detailed failure information if there are failed emails
+                    if (data.failed_emails && data.failed_emails.length > 0) {
+                        alertMessage += `<br><br><strong>⚠️ Failed Email Details:</strong><br>`;
+                        data.failed_emails.forEach(failure => {
+                            alertMessage += `• ${failure.email}: ${failure.error}<br>`;
+                        });
+                        
+                        if (data.failure_log_file) {
+                            alertMessage += `<br>📄 Detailed log saved to: <code>${data.failure_log_file}</code>`;
+                        }
+                    }
+                    
+                    showAlert('campaignAlert', alertMessage, data.emails_failed > 0 ? 'warning' : 'success');
                     
                     loadStats(); // Refresh stats
                 } else {
