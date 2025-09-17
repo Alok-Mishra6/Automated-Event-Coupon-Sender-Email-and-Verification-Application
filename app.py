@@ -22,10 +22,9 @@ from dotenv import load_dotenv
 import secrets
 
 # Import our services
-from email_service import create_email_service_from_env, EmailService
-from coupon_manager import CouponManager
-from csv_manager import CSVManager
-from google_auth_service import GoogleAuthService, GmailEmailService
+from src.coupons import CouponManager
+from src.data import CSVManager
+from src.auth import GoogleAuthService, GmailEmailService
 
 # Load environment variables
 load_dotenv()
@@ -47,14 +46,12 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Initialize services
 try:
-    email_service = create_email_service_from_env()
     csv_manager = CSVManager()
     coupon_manager = CouponManager(csv_manager=csv_manager)
     google_auth_service = GoogleAuthService()
     logger.info("Services initialized successfully")
 except Exception as e:
     logger.error(f"Failed to initialize services: {str(e)}")
-    email_service = None
     csv_manager = None
     coupon_manager = None
     google_auth_service = None

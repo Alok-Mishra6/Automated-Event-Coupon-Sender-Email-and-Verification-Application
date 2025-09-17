@@ -16,7 +16,15 @@ import base64
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import smtplib
-from email_service import EmailResult
+from dataclasses import dataclass
+
+@dataclass
+class EmailResult:
+    """Result of email sending operation"""
+    success: bool
+    recipient: str
+    error_message: Optional[str] = None
+    timestamp: Optional[str] = None
 import time
 
 logger = logging.getLogger(__name__)

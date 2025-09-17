@@ -14,8 +14,8 @@ from typing import Dict, Any, Optional, List
 import logging
 import json
 
-from encryption_service import EncryptionService
-from csv_manager import CSVManager, CouponRecord
+from src.encryption import EncryptionService
+from src.data import CSVManager, CouponRecord
 
 
 class CouponManager:
