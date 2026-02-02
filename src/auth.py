@@ -35,8 +35,8 @@ class GoogleAuthService:
     def __init__(self):
         self.client_id = os.getenv('GOOGLE_CLIENT_ID')
         self.client_secret = os.getenv('GOOGLE_CLIENT_SECRET')
-        # self.redirect_uri = os.getenv('GOOGLE_REDIRECT_URI', 'http://localhost:5000/auth/callback')
-        self.redirect_uri = os.getenv('GOOGLE_REDIRECT_URI', 'https://aeec2b25a6e5.ngrok-free.app/auth/callback')
+        self.redirect_uri = os.getenv('GOOGLE_REDIRECT_URI', 'http://localhost:5000/auth/callback')
+        # self.redirect_uri = os.getenv('GOOGLE_REDIRECT_URI', 'https://aeec2b25a6e5.ngrok-free.app/auth/callback')
         
         # OAuth 2.0 scopes for Gmail sending
         self.scopes = [
