@@ -205,7 +205,6 @@ def send_emails():
         
         data = request.get_json()
         event_name = data.get('event_name', 'Special Event')
-        
         # Read recipients from CSV
         recipients = csv_manager.read_recipients()
         if not recipients:
@@ -307,7 +306,6 @@ def verify_coupon():
     
     try:
         data = request.get_json()
-        encrypted_data = data.get('encrypted_data')
         verification_code = data.get('verification_code')
         email = data.get('email')
         
@@ -319,12 +317,10 @@ def verify_coupon():
             }), 400
         
         # Check if this is a verification code (6 digits) or encrypted data
-        if verification_code and len(verification_code) == 6 and verification_code.isdigit():
+        if verification_code :
             # Validate using verification code
             validation_result = coupon_manager.validate_coupon_by_code(verification_code, email)
-        elif encrypted_data:
-            # Validate using encrypted data (old method)
-            validation_result = coupon_manager.validate_coupon(encrypted_data, email)
+
         else:
             return jsonify({
                 'success': False, 
@@ -746,7 +742,7 @@ def internal_error(error):
 if __name__ == '__main__':
     # Development server configuration
     debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 8000))
     
     app.run(
         host='0.0.0.0',

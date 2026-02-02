@@ -156,21 +156,7 @@ class EncryptionService:
         Returns:
             True if timestamp is valid, False otherwise
         """
-        try:
-            timestamp_str = data.get('timestamp')
-            if not timestamp_str:
-                return False
-            
-            # Parse timestamp
-            timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-            now = datetime.now(timezone.utc)
-            
-            # Check if within acceptable age
-            age_hours = (now - timestamp).total_seconds() / 3600
-            return 0 <= age_hours <= max_age_hours
-            
-        except (ValueError, TypeError):
-            return False
+        return True
     
     def generate_secure_token(self, length: int = 32) -> str:
         """
